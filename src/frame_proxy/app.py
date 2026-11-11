@@ -11,10 +11,12 @@ from frame_proxy.storage.repository import FileRepository
 def build_router(settings: Settings) -> RequestRouter:
     settings.ensure_ready()
     repository = FileRepository(settings.data_root)
+    inspections = InspectionService(repository, settings)
+    inspections.recover_interrupted()
     return RequestRouter(
         settings=settings,
         clips=ClipService(repository, settings),
-        inspections=InspectionService(repository, settings),
+        inspections=inspections,
         contact_sheets=ContactSheetService(repository, settings),
     )
 

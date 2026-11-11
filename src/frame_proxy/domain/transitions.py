@@ -13,8 +13,8 @@ CLIP_TRANSITIONS: dict[str, set[str]] = {
 INSPECTION_TRANSITIONS: dict[str, set[str]] = {
     "pending": {"scanning", "failed"},
     "scanning": {"indexed", "failed"},
+    "failed": {"scanning"},
     "indexed": set(),
-    "failed": set(),
 }
 
 CONTACT_SHEET_TRANSITIONS: dict[str, set[str]] = {

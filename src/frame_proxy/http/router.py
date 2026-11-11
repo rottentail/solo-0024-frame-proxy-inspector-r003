@@ -86,6 +86,15 @@ class RequestRouter:
             if len(parts) == 3 and method == "GET":
                 record = self._inspections.get(inspection_id)
                 return ResponseData.json(200, {"inspection": record.as_dict()})
+            if len(parts) == 4 and parts[3] == "attempts" and method == "POST":
+                record = self._inspections.retry(inspection_id)
+                return ResponseData.json(201, {"inspection": record.as_dict()})
+            if len(parts) == 4 and parts[3] == "attempts" and method == "GET":
+                attempts = self._inspections.list_attempts(inspection_id)
+                return ResponseData.json(
+                    200,
+                    {"attempts": [attempt.as_dict() for attempt in attempts]},
+                )
             if (
                 len(parts) == 4
                 and parts[3] == "contact-sheets"

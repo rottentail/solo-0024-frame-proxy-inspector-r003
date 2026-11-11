@@ -57,6 +57,12 @@ An inspection belongs to one registered clip and stores the sensitivity,
 minimum scene length, sampled frame fingerprints, cut frame numbers, scene
 ranges, and representative frames.
 
+Every execution of an inspection is recorded as an attempt. An attempt has a
+sequence number, a unique attempt identifier, a start timestamp, and a
+terminal outcome (`succeeded`, `failed`, or `interrupted`) with its own
+failure code and message. The attempt history is append-only: re-execution
+adds a new attempt and never rewrites or drops earlier ones.
+
 Invariants:
 
 - Every scene range is half-open and remains inside the clip frame count.
@@ -65,13 +71,28 @@ Invariants:
 - The final scene ends exactly at the clip frame count.
 - A failed inspection keeps a stable error code and never exposes partial
   scene data as successful output.
+- At most one attempt is running at a time; only the currently active
+  attempt may commit or fail the record, so a late or superseded attempt
+  cannot overwrite a committed result.
+- An inspection commits at most one scene result. Once `indexed`, the
+  record is immutable and no further attempt may start.
+- Historical attempt outcomes, including every failure reason, survive
+  re-execution and service restarts.
 
 State machine:
 
 `pending -> scanning -> indexed`
 
-`pending -> failed`, `scanning -> failed`. The `indexed` and `failed` states are
-terminal.
+`pending -> failed`, `scanning -> failed`, `failed -> scanning` (retry).
+The `indexed` state is terminal. A `failed` inspection is retried in place
+under the same inspection identifier; each retry is a new attempt that
+re-decodes the clip from the beginning.
+
+When the service starts, any inspection still in `pending` or `scanning`
+belongs to an attempt that the previous process could not finish. Recovery
+closes the running attempt as `interrupted`, moves the record to `failed`
+with the stable `inspection_interrupted` code, and leaves the inspection
+eligible for another attempt.
 
 ### Contact sheet
 
@@ -136,7 +157,7 @@ Steps:
 1. The HTTP boundary validates `inspection_id`, sensitivity, sample stride, and
    minimum scene length.
 2. The service loads the registered clip and creates a `pending` inspection.
-3. The state gate moves the record to `scanning`.
+3. The state gate opens a new attempt and moves the record to `scanning`.
 4. The frame pipeline decodes sampled frames and computes luma/color
    fingerprints.
 5. The detector selects hard cuts whose distance exceeds the sensitivity
@@ -144,8 +165,18 @@ Steps:
 6. Scene ranges and representative frames are persisted and the inspection
    moves to `indexed`.
 
-Any decode, range, or persistence error moves the record to `failed` with a
-stable code. Successful inspections are immutable.
+Any decode, range, or persistence error closes the active attempt as `failed`
+with a stable code and moves the record to `failed`. Successful inspections
+are immutable.
+
+A failed inspection is executed again with
+`POST /v1/inspections/{inspection_id}/attempts`, which opens the next attempt
+under the same inspection identifier and stored parameters. The request
+conflicts while another attempt is running and is rejected once the
+inspection is `indexed`. Attempt commits and failures are fenced by the
+active attempt identifier, so a superseded attempt can neither publish scene
+data nor mark the record failed. Service startup recovers interrupted
+attempts as described under the shot inspection entity.
 
 ### 3. Create contact sheet
 
@@ -174,6 +205,8 @@ removed and no artifact URL becomes available.
 - `GET /v1/clips/{clip_id}`
 - `POST /v1/clips/{clip_id}/inspections`
 - `GET /v1/inspections/{inspection_id}`
+- `POST /v1/inspections/{inspection_id}/attempts`
+- `GET /v1/inspections/{inspection_id}/attempts`
 - `POST /v1/inspections/{inspection_id}/contact-sheets`
 - `GET /v1/contact-sheets/{sheet_id}`
 - `GET /v1/contact-sheets/{sheet_id}/artifact`

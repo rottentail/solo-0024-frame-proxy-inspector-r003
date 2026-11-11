@@ -16,6 +16,7 @@ class ErrorCode(str, Enum):
     FRAME_DECODE = "frame_decode_failed"
     CONTACT_SHEET_BUDGET = "contact_sheet_budget_exceeded"
     INVALID_STATE = "invalid_state_transition"
+    INSPECTION_INTERRUPTED = "inspection_interrupted"
     STORAGE = "storage_failure"
     INTERNAL = "internal_failure"
 

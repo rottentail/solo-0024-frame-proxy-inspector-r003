@@ -51,7 +51,9 @@ The generated file is an uncompressed 24-bit AVI with four color scenes and
 | `PUT` | `/v1/clips/{clip_id}` | admit an `application/x-avi` payload |
 | `GET` | `/v1/clips/{clip_id}` | read clip geometry and digest |
 | `POST` | `/v1/clips/{clip_id}/inspections` | index shot boundaries |
-| `GET` | `/v1/inspections/{inspection_id}` | read an immutable inspection |
+| `GET` | `/v1/inspections/{inspection_id}` | read an inspection with its attempt history |
+| `POST` | `/v1/inspections/{inspection_id}/attempts` | run a failed inspection again under the same identifier |
+| `GET` | `/v1/inspections/{inspection_id}/attempts` | list every execution attempt |
 | `POST` | `/v1/inspections/{inspection_id}/contact-sheets` | compose a PPM grid |
 | `GET` | `/v1/contact-sheets/{sheet_id}` | read the tile map and digest |
 | `GET` | `/v1/contact-sheets/{sheet_id}/artifact` | fetch the PPM bytes |
@@ -85,6 +87,33 @@ Example contact sheet request:
 
 `selection` may be `stored`, `midpoint`, or `first`. The rendered PPM is
 binary P6 with a maximum value of 255.
+
+## Inspection attempts, retries, and recovery
+
+Each execution of an inspection is an attempt with its own identifier,
+timestamps, and outcome (`succeeded`, `failed`, or `interrupted`). Attempts
+are append-only and are returned inside the inspection record, so a failure
+reason never disappears when the inspection runs again.
+
+A `failed` inspection is retried in place — no new business identifier is
+needed:
+
+```bash
+curl -X POST http://127.0.0.1:8765/v1/inspections/inspection-demo-a/attempts
+```
+
+The retry reuses the stored sensitivity, stride, and minimum scene length
+and decodes the clip from the first frame. It answers `409` while another
+attempt is running or once the inspection is `indexed`. An inspection
+commits at most one scene result: commit and failure writes are fenced by
+the active attempt identifier, so a superseded or late attempt cannot
+overwrite the result that contact sheets consume.
+
+On startup the service scans persisted inspections. Any record still in
+`pending` or `scanning` belongs to an attempt the previous process could
+not finish; recovery closes it as `interrupted` with the stable
+`inspection_interrupted` code and moves the inspection to `failed`, where
+the same retry endpoint picks it up again.
 
 ## Data layout
 
@@ -121,6 +150,7 @@ tools/
 ├── harness.py
 ├── check_clip_intake.py
 ├── check_shot_index.py
+├── check_inspection_retry.py
 └── check_contact_sheet.py
 ```
 
@@ -137,6 +167,7 @@ Run one workflow check at a time:
 ```bash
 PYTHONPATH=src:. python3 tools/check_clip_intake.py
 PYTHONPATH=src:. python3 tools/check_shot_index.py
+PYTHONPATH=src:. python3 tools/check_inspection_retry.py
 PYTHONPATH=src:. python3 tools/check_contact_sheet.py
 ```
 

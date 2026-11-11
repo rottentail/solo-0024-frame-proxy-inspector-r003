@@ -30,15 +30,37 @@ class HttpResult:
 
 
 class RunningService:
-    def __init__(self) -> None:
+    def __init__(self, data_dir: Path | None = None) -> None:
         self._temporary: tempfile.TemporaryDirectory[str] | None = None
+        if data_dir is None:
+            self._temporary = tempfile.TemporaryDirectory(prefix="frame-proxy-check-")
+            self._data_dir = Path(self._temporary.name)
+        else:
+            self._data_dir = Path(data_dir)
         self._server: FrameProxyServer | None = None
         self._thread: threading.Thread | None = None
         self._port = 0
 
+    @property
+    def data_dir(self) -> Path:
+        return self._data_dir
+
     def __enter__(self) -> "RunningService":
-        self._temporary = tempfile.TemporaryDirectory(prefix="frame-proxy-check-")
-        settings = Settings(data_root=Path(self._temporary.name))
+        self.start()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object,
+    ) -> None:
+        self.stop()
+        if self._temporary is not None:
+            self._temporary.cleanup()
+
+    def start(self) -> None:
+        settings = Settings(data_root=self._data_dir)
         router = build_router(settings)
         self._server = build_server(
             "127.0.0.1",
@@ -53,21 +75,19 @@ class RunningService:
             daemon=True,
         )
         self._thread.start()
-        return self
 
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: object,
-    ) -> None:
+    def stop(self) -> None:
         if self._server is not None:
             self._server.shutdown()
             self._server.server_close()
+            self._server = None
         if self._thread is not None:
             self._thread.join(timeout=2.0)
-        if self._temporary is not None:
-            self._temporary.cleanup()
+            self._thread = None
+
+    def restart(self) -> None:
+        self.stop()
+        self.start()
 
     def request(
         self,

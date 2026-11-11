@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -109,6 +110,30 @@ class FileRepository:
                     details={"inspection_id": record.inspection_id},
                 )
             atomic_write_json(path, record.as_dict())
+
+    def mutate_inspection(
+        self,
+        inspection_id: str,
+        mutator: Callable[[InspectionRecord], bool],
+    ) -> InspectionRecord:
+        path = self.paths.inspection_record(inspection_id)
+        with FileKeyLock(self.paths.lock_path("inspection", inspection_id)):
+            if not path.exists():
+                raise NotFoundError(
+                    ErrorCode.INSPECTION_NOT_FOUND,
+                    "inspection was not found",
+                    details={"inspection_id": inspection_id},
+                )
+            record = InspectionRecord.from_dict(self._read_json(path))
+            if mutator(record):
+                atomic_write_json(path, record.as_dict())
+            return record
+
+    def list_inspections(self) -> list[InspectionRecord]:
+        records: list[InspectionRecord] = []
+        for path in sorted(self.paths.inspections.glob("*.json")):
+            records.append(InspectionRecord.from_dict(self._read_json(path)))
+        return records
 
     def get_inspection(self, inspection_id: str) -> InspectionRecord:
         path = self.paths.inspection_record(inspection_id)

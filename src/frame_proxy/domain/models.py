@@ -135,6 +135,44 @@ class SceneRecord:
 
 
 @dataclass(slots=True)
+class AttemptRecord:
+    attempt_id: str
+    number: int
+    state: str
+    started_at: str = field(default_factory=utc_now)
+    finished_at: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        value: dict[str, Any] = {
+            "attempt_id": self.attempt_id,
+            "number": self.number,
+            "state": self.state,
+            "started_at": self.started_at,
+        }
+        if self.finished_at is not None:
+            value["finished_at"] = self.finished_at
+        if self.error_code is not None:
+            value["error_code"] = self.error_code
+        if self.error_message is not None:
+            value["error_message"] = self.error_message
+        return value
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "AttemptRecord":
+        return cls(
+            attempt_id=str(data["attempt_id"]),
+            number=int(data["number"]),
+            state=str(data["state"]),
+            started_at=str(data["started_at"]),
+            finished_at=data.get("finished_at"),
+            error_code=data.get("error_code"),
+            error_message=data.get("error_message"),
+        )
+
+
+@dataclass(slots=True)
 class InspectionRecord:
     inspection_id: str
     clip_id: str
@@ -146,6 +184,8 @@ class InspectionRecord:
     cut_frames: list[int] = field(default_factory=list)
     scenes: list[SceneRecord] = field(default_factory=list)
     transitions: list[Transition] = field(default_factory=list)
+    attempts: list[AttemptRecord] = field(default_factory=list)
+    active_attempt_id: str | None = None
     error_code: str | None = None
     error_message: str | None = None
     created_at: str = field(default_factory=utc_now)
@@ -163,9 +203,12 @@ class InspectionRecord:
             "cut_frames": list(self.cut_frames),
             "scenes": [item.as_dict() for item in self.scenes],
             "transitions": [item.as_dict() for item in self.transitions],
+            "attempts": [item.as_dict() for item in self.attempts],
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
+        if self.active_attempt_id is not None:
+            value["active_attempt_id"] = self.active_attempt_id
         if self.error_code is not None:
             value["error_code"] = self.error_code
         if self.error_message is not None:
@@ -199,6 +242,12 @@ class InspectionRecord:
                 if isinstance(item, dict)
             ],
             transitions=transitions,
+            attempts=[
+                AttemptRecord.from_dict(item)
+                for item in data.get("attempts", [])
+                if isinstance(item, dict)
+            ],
+            active_attempt_id=data.get("active_attempt_id"),
             error_code=data.get("error_code"),
             error_message=data.get("error_message"),
             created_at=str(data["created_at"]),
